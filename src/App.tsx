@@ -279,28 +279,6 @@ export default function App() {
   }, [objectUrl]);
 
   useEffect(() => {
-    const frame = photoFrameRef.current;
-
-    if (!frame) {
-      return;
-    }
-
-    const updateViewport = () => {
-      setPhotoViewport({
-        width: frame.clientWidth,
-        height: frame.clientHeight,
-      });
-    };
-
-    updateViewport();
-
-    const observer = new ResizeObserver(updateViewport);
-    observer.observe(frame);
-
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     if (!photoStage) {
       return;
     }
@@ -322,15 +300,49 @@ export default function App() {
     });
   };
 
-  const resetPhotoInteraction = () => {
+  const clearPhotoGestureState = () => {
     activePointersRef.current.clear();
     dragStateRef.current = null;
     pinchStateRef.current = null;
     suppressPhotoClickRef.current = false;
-    photoTransformRef.current = initialPhotoTransform;
     setIsDraggingPhoto(false);
+  };
+
+  const resetPhotoInteraction = () => {
+    clearPhotoGestureState();
+    photoTransformRef.current = initialPhotoTransform;
     setPhotoTransform(initialPhotoTransform);
   };
+
+  useEffect(() => {
+    if (screen !== 'picker') {
+      clearPhotoGestureState();
+      return;
+    }
+
+    const frame = photoFrameRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    const updateViewport = () => {
+      setPhotoViewport({
+        width: frame.clientWidth,
+        height: frame.clientHeight,
+      });
+    };
+
+    updateViewport();
+
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(frame);
+
+    return () => {
+      observer.disconnect();
+      clearPhotoGestureState();
+    };
+  }, [screen]);
 
   const analyzeCurrentPhoto = async () => {
     const image = imageRef.current;
@@ -677,13 +689,13 @@ export default function App() {
     setActiveRole('target');
     setTargetTouched(true);
     setColors((current) => ({ ...current, target: nextTargetColor }));
-    setStatus(`${roleLabels.target} РѕРЅРѕРІР»РµРЅРѕ РІСЂСѓС‡РЅСѓ.`);
+    setStatus(`${roleLabels.target} оновлено вручну.`);
   };
 
   const handleTargetPhotoSampling = () => {
     setActiveRole('target');
     setTargetTouched(true);
-    setStatus('РўРѕСЂРєРЅС–С‚СЊСЃСЏ С„РѕС‚Рѕ Р°Р±Рѕ РІРёР±РµСЂС–С‚СЊ РєРѕР»С–СЂ РЅР° РїР°Р»С–С‚СЂС–.');
+    setStatus('Торкніться фото або виберіть колір на палітрі.');
   };
 
   const selectRole = (role: ColorRole) => {
