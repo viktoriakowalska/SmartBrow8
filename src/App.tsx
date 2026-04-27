@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, Camera, Check, Sparkles, Upload } from 'lucide-r
 import { useEffect, useRef, useState } from 'react';
 import { type ColorRole, type MarkerPoint, sampleAverageColor } from './color';
 import { detectFaceColorPoints } from './faceAnalysis';
+import { normalizeUploadedImage } from './imageNormalization';
 import TargetColorPicker from './TargetColorPicker';
 
 type Screen = 'picker' | 'result';
@@ -77,6 +78,11 @@ const initialColors: ColorState = {
 const initialMarkers: MarkerState = {
   skin: { x: 35, y: 42 },
   brow: { x: 57, y: 35 },
+};
+
+const emptyMarkers: MarkerState = {
+  skin: null,
+  brow: null,
 };
 
 const initialImageSize: ImageSize = {
@@ -265,6 +271,7 @@ export default function App() {
   const dragStateRef = useRef<DragState | null>(null);
   const pinchStateRef = useRef<PinchState | null>(null);
   const suppressPhotoClickRef = useRef(false);
+  const uploadRequestRef = useRef(0);
   const photoStage = getPhotoStage(photoViewport, imageSize);
 
   photoStageRef.current = photoStage;
@@ -346,6 +353,7 @@ export default function App() {
 
   const analyzeCurrentPhoto = async () => {
     const image = imageRef.current;
+    const requestId = uploadRequestRef.current;
 
     if (!image || !image.complete || !image.naturalWidth) {
       return;
@@ -360,6 +368,10 @@ export default function App() {
 
     try {
       const points = await detectFaceColorPoints(image);
+
+      if (uploadRequestRef.current !== requestId || imageRef.current !== image) {
+        return;
+      }
 
       if (!points) {
         setStatus('Не вдалося автоматично знайти обличчя. Оберіть колір вручну на фото.');
@@ -381,10 +393,16 @@ export default function App() {
       });
       setStatus('Кольори визначено автоматично.');
     } catch (error) {
+      if (uploadRequestRef.current !== requestId || imageRef.current !== image) {
+        return;
+      }
+
       console.warn('MediaPipe analysis failed', error);
       setStatus('Не вдалося автоматично знайти обличчя. Оберіть колір вручну на фото.');
     } finally {
-      setIsAnalyzing(false);
+      if (uploadRequestRef.current === requestId && imageRef.current === image) {
+        setIsAnalyzing(false);
+      }
     }
   };
 
@@ -409,7 +427,55 @@ export default function App() {
     setScreen('picker');
   };
 
+  const prepareUploadedPhoto = async (file: File | undefined) => {
+    if (!file) {
+      return;
+    }
+
+    const requestId = uploadRequestRef.current + 1;
+    uploadRequestRef.current = requestId;
+    setIsAnalyzing(true);
+    setStatus('Готуємо фото...');
+    setMarkers(emptyMarkers);
+
+    try {
+      const normalizedImage = await normalizeUploadedImage(file);
+
+      if (uploadRequestRef.current !== requestId) {
+        return;
+      }
+
+      const nextUrl = URL.createObjectURL(normalizedImage.blob);
+      setObjectUrl((previousUrl) => {
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+
+        return nextUrl;
+      });
+      setPhotoUrl(nextUrl);
+      setImageSize({
+        width: normalizedImage.width,
+        height: normalizedImage.height,
+      });
+      resetPhotoInteraction();
+      setMarkers(emptyMarkers);
+      setScreen('picker');
+    } catch (error) {
+      console.warn('Image normalization failed', error);
+
+      if (uploadRequestRef.current !== requestId) {
+        return;
+      }
+
+      setStatus('Не вдалося підготувати фото. Спробуйте інший файл.');
+      setIsAnalyzing(false);
+    }
+  };
+
   const resetDemo = () => {
+    uploadRequestRef.current += 1;
+
     if (objectUrl) {
       URL.revokeObjectURL(objectUrl);
       setObjectUrl(null);
@@ -426,7 +492,7 @@ export default function App() {
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setPhotoFromFile(event.target.files?.[0]);
+    void prepareUploadedPhoto(event.target.files?.[0]);
     event.target.value = '';
   };
 
